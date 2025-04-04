@@ -1,0 +1,37 @@
+{
+  "name": "vibe",
+  "version": "1.0.0",
+  "description": "Contextual website recommendations while browsing",
+  "main": "index.js",
+  "scripts": {
+    "build": "webpack --config webpack.config.js && npm run copy-files",
+    "copy-files": "mkdir -p dist && cp manifest.json dist/ && cp -r icons dist/ && cp src/popup/index.html dist/popup.html",
+    "watch": "webpack --config webpack.config.js --watch",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@types/chrome": "^0.0.260",
+    "@types/react": "^18.0.0",
+    "@types/react-dom": "^18.0.0",
+    "autoprefixer": "^10.0.0",
+    "exa-js": "^1.5.12",
+    "postcss": "^8.0.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "tailwindcss": "^3.0.0",
+    "typescript": "^5.0.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss7-compat": "^2.2.17",
+    "copy-webpack-plugin": "^13.0.0",
+    "css-loader": "^6.0.0",
+    "postcss-loader": "^7.0.0",
+    "style-loader": "^3.0.0",
+    "ts-loader": "^9.0.0",
+    "webpack": "^5.0.0",
+    "webpack-cli": "^5.0.0"
+  }
+}

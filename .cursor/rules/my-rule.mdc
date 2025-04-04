@@ -1,0 +1,40 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# Vibe Development Rules
+
+## Code Style
+- Use TypeScript for all code
+- Use functional React components with hooks
+- Use Tailwind CSS for styling
+- Follow mobile-first responsive design
+- Keep components small and focused
+
+## Architecture
+- Organize by feature/functionality
+- Use React Context for global state
+- Keep state close to where it's used
+- Minimize communication between extension contexts
+
+## Performance
+- Lazy load when possible
+- Minimize re-renders
+- Optimize content script impact
+- Use webpack production mode
+
+## Documentation
+- Use JSDoc for functions and components
+- Document complex logic
+- Keep README up-to-date
+
+## Build & Deployment
+- Use webpack for bundling
+- Follow Chrome Extension best practices
+- Optimize extension size
+
+## Accessibility & Security
+- Follow WCAG 2.1 guidelines
+- Sanitize user input
+- Follow least privilege principle 
