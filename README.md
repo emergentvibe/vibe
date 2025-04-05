@@ -15,6 +15,10 @@ A browser extension that provides intelligent, contextual website recommendation
   - "Same Domain Only" toggle to see more from the current website
   - Custom domain lists to filter recommendations by your preferred domains
 - **Seamless Integration**: Clean, minimal sidebar that adapts to the website layout
+- **Theme-Aware Design**: Automatically adapts to your system's light/dark mode preference
+- **SPA Support**: Works with Single Page Applications and maintains state during navigation
+- **Real-Time Suggestions**: Recommendations update as you browse different pages
+- **Coming Soon - Semantic Control-F**: Find content semantically related to your search terms using Option-F (Mac) or Alt-F (Windows)
 
 ## Setup
 

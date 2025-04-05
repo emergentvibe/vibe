@@ -2,6 +2,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import Sidebar from './Sidebar';
 import './content.css';
+import { initSemanticSearch } from '../semantic-search/semantic-search';
 
 console.log('%c VIBE EXTENSION LOADED ', 'background: #4F46E5; color: white; font-size: 20px; padding: 10px;');
 
@@ -51,6 +52,8 @@ function initSidebar() {
 
 // Initialize on first load
 initSidebar();
+// Initialize semantic search feature
+initSemanticSearch();
 
 // Handle navigation via History API (for SPAs)
 const originalPushState = history.pushState;
@@ -86,6 +89,8 @@ function handleNavigation() {
   if (!document.getElementById('vibe-root')) {
     console.log('Sidebar container not found, re-initializing');
     initSidebar();
+    // Reinitialize semantic search on navigation
+    initSemanticSearch();
   } else {
     console.log('Sidebar container still exists, no need to re-initialize');
   }

@@ -150,6 +150,133 @@ A browser extension for Arc that provides contextual website recommendations whi
    - Upload extension package
    - Submit for review
 
+## Phase 8: Semantic Control-F Feature
+1. Design & Architecture
+   - Define platform-specific keyboard shortcuts: Option-F on Mac and Alt-F on Windows
+   - Design UI for semantic search overlay and results highlighting
+   - Map out content processing workflow (chunking, embedding, matching)
+   - Create interface for the OpenAI embeddings API integration
+
+2. Content Processing
+   - Create content extraction service to get meaningful text from current page
+   - Implement intelligent text chunking algorithms (paragraphs, sections, etc.)
+   - Add function to remove duplicate content and boilerplate
+   - Create utility to extract readable content with proper context
+
+3. Embedding System
+   - Implement OpenAI API client for text embeddings
+   - Create embedding generation service for chunks and queries
+   - Develop vector similarity comparison algorithm
+   - Implement batching for efficient API usage within rate limits
+
+4. Caching System
+   - Design cache data structure for URL-to-embeddings mapping
+   - Implement persistent cache using chrome.storage.local
+   - Add cache management (expiration, size limits, invalidation)
+   - Create background worker for pre-emptive caching of frequently visited sites
+
+5. Search Interface
+   - Create search input UI that appears on keyboard shortcut
+   - Design highlighting system for matching content chunks
+   - Implement scroll-to-results functionality
+   - Add navigation between semantic search results
+
+6. User Experience
+   - Create visual indicator when semantic search is active
+   - Design overlay for search results with similarity scores
+   - Add clear visual distinction between regular and semantic search
+   - Implement intuitive keyboard navigation through results
+
+7. Performance Optimization
+   - Throttle embedding requests to respect API limits
+   - Implement chunk prioritization based on viewport visibility
+   - Add background processing for off-screen content
+   - Create progress indicator for large pages
+
+8. Testing & Refinement
+   - Test across different types of websites
+   - Optimize chunking for different content types (articles, documentation, etc.)
+   - Fine-tune similarity thresholds based on user feedback
+   - Create fallback mechanisms when embeddings are unavailable
+
+### Semantic Control-F Implementation Notes
+
+#### Data Structures
+```typescript
+interface TextChunk {
+  id: string;           // Unique identifier
+  text: string;         // Chunk text content
+  domPath: string;      // Path to DOM element
+  embedding?: number[]; // Vector embedding when available
+  startOffset: number;  // Start position within element
+  endOffset: number;    // End position within element
+}
+
+interface PageCache {
+  url: string;          // Page URL
+  timestamp: number;    // When it was cached
+  chunks: TextChunk[];  // Cached chunks with embeddings
+  expires: number;      // Expiration timestamp
+}
+
+interface SearchResult {
+  chunkId: string;      // Reference to matching chunk
+  similarity: number;   // Similarity score (0-1)
+  highlights: {         // Positions to highlight
+    start: number;
+    end: number;
+  }[];
+}
+```
+
+#### Key Components
+1. **Content Processor**
+   - Extract readable text from the page
+   - Split content into meaningful chunks
+   - Track DOM positions for highlighting
+   - Filter out navigation, ads, and boilerplate
+
+2. **Embedding Manager**
+   - Connect to OpenAI API for embeddings
+   - Handle API rate limiting and batching
+   - Generate embeddings for chunks and queries
+   - Implement vector similarity comparisons
+
+3. **Cache System**
+   - Store embeddings for visited pages
+   - Manage cache size and expiration
+   - Handle cache invalidation when pages change
+   - Preload embeddings for linked pages when idle
+
+4. **Search UI**
+   - Keyboard shortcut listener
+   - Search input and results display
+   - Highlight rendering in the page context
+   - Results navigation controls
+
+#### Workflow
+1. User presses platform-specific keyboard shortcut (Option-F on Mac, Alt-F on Windows)
+2. Semantic search overlay appears
+3. User types search query
+4. System checks if page is cached:
+   - If cached, use stored embeddings
+   - If not, extract content and generate embeddings
+5. Query is embedded and compared to all chunk embeddings
+6. Matching chunks above threshold are highlighted in the page
+7. User can navigate between semantic matches
+
+#### OpenAI API Integration
+- Use 'text-embedding-ada-002' model for embedding generation
+- Batch chunks to minimize API calls
+- Implement exponential backoff for rate limiting
+- Store API key securely with extension storage
+
+#### Performance Considerations
+- Only embed visible content initially
+- Queue background embedding tasks for the rest of the page
+- Set reasonable chunk sizes (100-500 tokens per chunk)
+- Implement progressive loading for large documents
+
 ## Implementation Details
 - Sidebar: 
   - ✅ Fixed position in top-right with margin
@@ -233,4 +360,5 @@ interface DomainList {
 8. ✅ Fix CSS isolation issues
 9. Create promotional images and screenshots
 10. Write store listing content
-11. Submit to Chrome Web Store 
+11. Submit to Chrome Web Store
+12. Begin development of Semantic Control-F feature 
