@@ -29,19 +29,31 @@ let currentResults: any[] = [];
 let currentResultIndex = -1;
 let isSearching = false;
 let isEmbeddingReady = false; // Track if embeddings are ready for search
+let pageChunks: TextChunk[] = []; // Store extracted chunks
+let chunkEmbeddings: Record<string, number[]> = {}; // Store embeddings for chunks
+
+// Process state tracking
+let modelLoadStarted = false;
+let modelLoadComplete = false;
+let chunkExtractionComplete = false;
+let embeddingGenerationProgress = 0;
 
 /**
  * Initialize the semantic search feature
  */
 export function initSemanticSearch() {
   if (!SEMANTIC_SEARCH_ENABLED) {
+    console.log('Semantic search is disabled via feature flag constant');
     return;
   }
 
   // Avoid double initialization
   if (isInitialized) {
+    console.log('Semantic search already initialized');
     return;
   }
+  
+  console.log('Initializing semantic search');
   
   // Register the keyboard shortcut handler
   document.addEventListener('keydown', handleKeyDown);
@@ -59,6 +71,7 @@ export function initSemanticSearch() {
   (window as any).testSemanticSearch = testSemanticSearch;
   
   isInitialized = true;
+  console.log('Semantic search initialization complete');
 }
 
 /**
@@ -110,11 +123,13 @@ function toggleSemanticSearch() {
 }
 
 /**
- * Show the semantic search overlay
+ * Show the semantic search overlay and start processing immediately
  */
 function showSemanticSearch() {
+  // Reset process state tracking
+  resetProcessState();
+
   isSearchVisible = true;
-  isEmbeddingReady = false; // Reset embedding state
   
   // If the overlay doesn't exist, create it
   if (!searchOverlayElement) {
@@ -132,82 +147,153 @@ function showSemanticSearch() {
       searchInput.focus();
     }
     
-    // Show embedding status and spinner
-    const embeddingStatus = searchOverlayElement.querySelector('.vibe-semantic-search-embedding-status') as HTMLElement;
-    if (embeddingStatus) {
-      embeddingStatus.style.display = 'block';
-      embeddingStatus.textContent = 'Embedding website...';
-    }
+    // Update status to show we're starting the process
+    updateEmbeddingStatus('Loading model...', 'loading');
     
-    // Show spinner, hide arrow
-    const spinner = searchOverlayElement.querySelector('.spinner') as HTMLElement;
-    const arrow = searchOverlayElement.querySelector('.arrow') as HTMLElement;
-    if (spinner && arrow) {
-      spinner.style.display = 'block';
-      arrow.style.display = 'none';
-    }
-    
-    // Start embedding process
-    startEmbeddingProcess();
+    // Start processing content immediately
+    startProcessingContent();
   }
 }
 
 /**
- * Start the embedding process for the page
+ * Reset the processing state variables
  */
-async function startEmbeddingProcess() {
+function resetProcessState() {
+  isEmbeddingReady = false;
+  modelLoadStarted = false;
+  modelLoadComplete = false;
+  chunkExtractionComplete = false;
+  embeddingGenerationProgress = 0;
+}
+
+/**
+ * Start processing content immediately on overlay show
+ */
+async function startProcessingContent() {
   try {
-    // Reset state
-    isEmbeddingReady = false;
+    console.log('Starting content processing pipeline');
     
-    // Get the model ready and extract page content
-    const { extractTextChunks } = await import('./utils/text-chunker');
-    const { getEmbeddingModel } = await import('./services/embedding-service');
+    // Step 1: Start extracting text chunks immediately
+    updateEmbeddingStatus('Analyzing page content...', 'loading');
+    pageChunks = extractTextChunks();
+    chunkExtractionComplete = true;
+    console.log(`Extracted ${pageChunks.length} text chunks from page`);
     
-    // Extract chunks first, as this is faster than loading the model
-    const chunks = extractTextChunks();
-    console.log(`Extracted ${chunks.length} text chunks from page`);
+    // Step 2: Load the embedding model
+    updateEmbeddingStatus('Loading AI model (0%)...', 'loading');
+    modelLoadStarted = true;
     
-    // Initialize the embedding model
-    // This is the slow part that needs to download the model first time
-    await getEmbeddingModel();
-    
-    // Update UI to show embedding is ready
-    isEmbeddingReady = true;
-    
-    if (searchOverlayElement) {
-      // Update embedding status
-      const embeddingStatus = searchOverlayElement.querySelector('.vibe-semantic-search-embedding-status') as HTMLElement;
-      if (embeddingStatus) {
-        embeddingStatus.textContent = 'Ready to search...';
-        
-        // Auto-hide the status after 2 seconds
-        setTimeout(() => {
-          if (embeddingStatus) {
-            embeddingStatus.style.display = 'none';
-          }
-        }, 2000);
+    try {
+      const { getEmbeddingModel, registerModelLoadingProgressCallback } = await import('./services/embedding-service');
+      
+      // Register progress callback to update UI
+      registerModelLoadingProgressCallback((progress) => {
+        updateEmbeddingStatus(`Loading AI model (${progress}%)...`, 'loading');
+      });
+      
+      // Load the model
+      const model = await getEmbeddingModel();
+      modelLoadComplete = true;
+      console.log('Model loaded successfully:', model ? 'Success' : 'Failed');
+      
+      // Step 3: Start embedding chunks in batches
+      if (pageChunks.length > 0) {
+        await generateChunkEmbeddings(pageChunks);
       }
       
-      // Show arrow, hide spinner
-      const spinner = searchOverlayElement.querySelector('.spinner') as HTMLElement;
-      const arrow = searchOverlayElement.querySelector('.arrow') as HTMLElement;
-      if (spinner && arrow) {
-        spinner.style.display = 'none';
-        arrow.style.display = 'block';
+      // All processing complete
+      isEmbeddingReady = true;
+      updateEmbeddingStatus('Ready for search!', 'ready');
+      
+      // Show enter to search prompt if input has content
+      const searchInput = searchOverlayElement?.querySelector('input') as HTMLInputElement;
+      if (searchInput && searchInput.value.trim().length > 2) {
+        const enterToSearchPrompt = searchOverlayElement?.querySelector('.vibe-semantic-search-enter-prompt') as HTMLElement;
+        if (enterToSearchPrompt) {
+          enterToSearchPrompt.style.display = 'block';
+        }
       }
+    } catch (modelError) {
+      console.error('Error loading embedding model:', modelError);
+      updateEmbeddingStatus('Error loading AI model', 'error');
     }
   } catch (error) {
-    console.error('Error during embedding initialization:', error);
+    console.error('Error during content processing:', error);
+    updateEmbeddingStatus('Error processing content', 'error');
+  }
+}
+
+/**
+ * Generate embeddings for extracted chunks
+ */
+async function generateChunkEmbeddings(chunks: TextChunk[]) {
+  const { generateEmbedding } = await import('./services/embedding-service');
+  const batchSize = 5;
+  chunkEmbeddings = {};
+  
+  updateEmbeddingStatus(`Generating page embeddings (0%)...`, 'loading');
+  
+  for (let i = 0; i < chunks.length; i += batchSize) {
+    const batch = chunks.slice(i, i + batchSize);
     
-    // Update UI to show error
-    if (searchOverlayElement) {
-      const embeddingStatus = searchOverlayElement.querySelector('.vibe-semantic-search-embedding-status') as HTMLElement;
-      if (embeddingStatus) {
-        embeddingStatus.textContent = 'Error loading embedding model';
-        embeddingStatus.style.color = '#ef4444';
-      }
+    // Process batch in parallel
+    await Promise.all(
+      batch.map(async (chunk) => {
+        try {
+          const embedding = await generateEmbedding(chunk.text);
+          chunkEmbeddings[chunk.id] = embedding;
+          chunk.embedding = embedding;
+        } catch (error) {
+          console.error('Error generating embedding for chunk:', error);
+        }
+      })
+    );
+    
+    // Update progress
+    embeddingGenerationProgress = Math.min(100, Math.round((i + batch.length) / chunks.length * 100));
+    updateEmbeddingStatus(`Generating page embeddings (${embeddingGenerationProgress}%)...`, 'loading');
+    
+    // Allow UI to update
+    await new Promise(resolve => setTimeout(resolve, 0));
+  }
+  
+  console.log(`Generated embeddings for ${Object.keys(chunkEmbeddings).length}/${chunks.length} chunks`);
+}
+
+/**
+ * Update the embedding status UI with detailed information
+ */
+function updateEmbeddingStatus(message: string, state: 'loading' | 'ready' | 'error') {
+  if (!searchOverlayElement) return;
+  
+  const embeddingStatus = searchOverlayElement.querySelector('.vibe-semantic-search-embedding-status') as HTMLElement;
+  const spinner = searchOverlayElement.querySelector('.spinner') as HTMLElement;
+  const arrow = searchOverlayElement.querySelector('.arrow') as HTMLElement;
+  
+  if (embeddingStatus) {
+    embeddingStatus.textContent = message;
+    embeddingStatus.style.display = 'block';
+    
+    if (state === 'error') {
+      embeddingStatus.style.color = '#ef4444';
+    } else {
+      embeddingStatus.style.color = '#4F46E5';
     }
+    
+    // Auto-hide the status after 2 seconds if ready
+    if (state === 'ready') {
+      setTimeout(() => {
+        if (embeddingStatus) {
+          embeddingStatus.style.display = 'none';
+        }
+      }, 2000);
+    }
+  }
+  
+  // Update spinner/arrow
+  if (spinner && arrow) {
+    spinner.style.display = state === 'loading' ? 'block' : 'none';
+    arrow.style.display = state === 'ready' ? 'block' : 'none';
   }
 }
 
@@ -490,11 +576,24 @@ function createOverlayElement() {
   // Handle input events
   searchInput.addEventListener('input', (e) => {
     const query = (e.target as HTMLInputElement).value;
-    // Show or hide the enter prompt based on input length
-    if (query.trim().length > 2 && isEmbeddingReady) {
-      enterToSearchPrompt.style.display = 'block';
-    } else {
-      enterToSearchPrompt.style.display = 'none';
+    
+    // Show or hide the enter prompt based on input length and embedding status
+    const enterToSearchPrompt = searchOverlayElement?.querySelector('.vibe-semantic-search-enter-prompt') as HTMLElement;
+    if (enterToSearchPrompt) {
+      if (query.trim().length > 2 && isEmbeddingReady) {
+        enterToSearchPrompt.style.display = 'block';
+      } else {
+        enterToSearchPrompt.style.display = 'none';
+      }
+    }
+    
+    // Show the current processing status if embeddings are not ready
+    if (!isEmbeddingReady) {
+      const statusMessage = chunkExtractionComplete ? 
+        (modelLoadComplete ? `Generating page embeddings (${embeddingGenerationProgress}%)...` : 'Loading AI model...') : 
+        'Analyzing page content...';
+      
+      updateEmbeddingStatus(statusMessage, 'loading');
     }
 
     // Only clear results when input is empty, don't search automatically
@@ -505,10 +604,33 @@ function createOverlayElement() {
   
   // Handle keyboard enter
   searchInput.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter' && isEmbeddingReady && searchInput.value.trim().length > 2) {
-      performSearch(searchInput.value);
+    if (e.key === 'Enter') {
+      const query = (e.target as HTMLInputElement).value;
+      
+      if (query.trim().length < 3) {
+        // Query too short
+        updateStatusIndicator('Enter at least 3 characters to search', false);
+        return;
+      }
+      
+      if (!isEmbeddingReady) {
+        // Embeddings not ready yet
+        const progressMessage = chunkExtractionComplete ? 
+          (modelLoadComplete ? `Still generating page embeddings (${embeddingGenerationProgress}%)` : 'Model still loading') : 
+          'Still analyzing page';
+        
+        updateStatusIndicator(`Please wait, ${progressMessage.toLowerCase()}...`, false);
+        return;
+      }
+      
+      // All checks passed, perform the search
+      performSearch(query);
+      
       // Hide the prompt when search is triggered
-      enterToSearchPrompt.style.display = 'none';
+      const enterToSearchPrompt = searchOverlayElement?.querySelector('.vibe-semantic-search-enter-prompt') as HTMLElement;
+      if (enterToSearchPrompt) {
+        enterToSearchPrompt.style.display = 'none';
+      }
     }
   });
   
@@ -516,9 +638,30 @@ function createOverlayElement() {
   const arrow = embeddingIndicator.querySelector('.arrow');
   if (arrow) {
     arrow.addEventListener('click', () => {
-      if (isEmbeddingReady && searchInput.value.trim().length > 2) {
-        performSearch(searchInput.value);
-        // Hide the prompt when search is triggered
+      const query = searchInput.value;
+      
+      if (query.trim().length < 3) {
+        // Query too short
+        updateStatusIndicator('Enter at least 3 characters to search', false);
+        return;
+      }
+      
+      if (!isEmbeddingReady) {
+        // Embeddings not ready yet
+        const progressMessage = chunkExtractionComplete ? 
+          (modelLoadComplete ? `Still generating page embeddings (${embeddingGenerationProgress}%)` : 'Model still loading') : 
+          'Still analyzing page';
+        
+        updateStatusIndicator(`Please wait, ${progressMessage.toLowerCase()}...`, false);
+        return;
+      }
+      
+      // All checks passed, perform the search
+      performSearch(query);
+      
+      // Hide the prompt when search is triggered
+      const enterToSearchPrompt = searchOverlayElement?.querySelector('.vibe-semantic-search-enter-prompt') as HTMLElement;
+      if (enterToSearchPrompt) {
         enterToSearchPrompt.style.display = 'none';
       }
     });
@@ -532,7 +675,7 @@ function createOverlayElement() {
  * Perform a semantic search with the given query
  */
 async function performSearch(query: string) {
-  if (!searchOverlayElement) return;
+  if (!searchOverlayElement || !isEmbeddingReady) return;
   
   try {
     // Set loading state
@@ -542,104 +685,54 @@ async function performSearch(query: string) {
     // Clear previous results
     clearResults(false);
     
-    // Extract text chunks from the current page
-    const chunks = extractTextChunks();
-    
-    // If no chunks were found, show a message
-    if (chunks.length === 0) {
-      updateStatusIndicator('No content found to search', false);
+    // Use already generated embeddings
+    if (pageChunks.length === 0 || Object.keys(chunkEmbeddings).length === 0) {
+      updateStatusIndicator('No content to search', false);
       return;
     }
     
-    console.log(`Processing semantic search for query: "${query}" with ${chunks.length} chunks`);
-    updateStatusIndicator(`Analyzing ${chunks.length} content sections...`, true);
+    console.log(`Performing semantic search for query: "${query}" with ${pageChunks.length} chunks`);
     
     // Generate embedding for the query
+    const { generateEmbedding } = await import('./services/embedding-service');
     const queryEmbedding = await generateEmbedding(query);
     console.log('Query embedding generated:', queryEmbedding ? 'Success' : 'Failed', 
                 queryEmbedding ? `(${queryEmbedding.length} dimensions)` : '');
     
-    // Process chunks in batches to avoid overwhelming the API
-    const results: Array<{
-      id: string;
-      text: string;
-      domPath: string;
-      element: Element | null;
-      startOffset: number;
-      endOffset: number;
-      embedding?: number[];
-      similarity: number;
-    }> = [];
-    
-    // Debug: Store all similarity scores to analyze later
+    // Use pre-calculated embeddings to find matches
+    const results: Array<TextChunk & { similarity: number }> = [];
     const allSimilarityScores: {text: string, score: number}[] = [];
+    const similarityThreshold = 0.3; // 30% threshold
     
-    // Lower the threshold for debugging (was 0.6 or 60%)
-    const similarityThreshold = 0.3; // 30% for testing
-    console.log(`Using similarity threshold: ${similarityThreshold} (30%)`);
-    
-    const batchSize = 20;
-    
-    for (let i = 0; i < chunks.length; i += batchSize) {
-      const batch = chunks.slice(i, i + batchSize);
+    // Calculate similarity for all chunks
+    for (const chunk of pageChunks) {
+      const embedding = chunkEmbeddings[chunk.id];
+      if (!embedding) continue;
       
-      // Generate embeddings for each chunk
-      const embeddings = await Promise.all(
-        batch.map(async (chunk) => {
-          try {
-            // If the chunk already has an embedding, use it
-            if (chunk.embedding) {
-              return chunk.embedding;
-            }
-            
-            // Otherwise, generate a new embedding
-            const embedding = await generateEmbedding(chunk.text);
-            chunk.embedding = embedding;
-            return embedding;
-          } catch (error: any) {
-            console.error('Error generating embedding for chunk:', error);
-            return null;
-          }
-        })
-      );
-      
-      console.log(`Generated ${embeddings.filter(e => e !== null).length}/${batch.length} embeddings for batch ${Math.floor(i/batchSize) + 1}`);
-      
-      // Calculate similarity scores
-      batch.forEach((chunk, index) => {
-        const embedding = embeddings[index];
+      try {
+        const similarity = cosineSimilarity(queryEmbedding, embedding);
         
-        if (embedding) {
-          try {
-            const similarity = cosineSimilarity(queryEmbedding, embedding);
-            
-            // Store all scores for debugging
-            allSimilarityScores.push({
-              text: chunk.text.length > 60 ? chunk.text.substring(0, 60) + '...' : chunk.text,
-              score: similarity
-            });
-            
-            // Only include results above the threshold
-            if (similarity > similarityThreshold) {
-              results.push({
-                ...chunk,
-                similarity,
-                text: chunk.text
-              });
-            }
-          } catch (error) {
-            console.error('Error calculating similarity:', error);
-          }
+        // Store all scores for debugging
+        allSimilarityScores.push({
+          text: chunk.text.length > 60 ? chunk.text.substring(0, 60) + '...' : chunk.text,
+          score: similarity
+        });
+        
+        // Only include results above the threshold
+        if (similarity > similarityThreshold) {
+          results.push({
+            ...chunk,
+            similarity
+          });
         }
-      });
-      
-      // Update status for long-running searches
-      updateStatusIndicator(`Processed ${Math.min(i + batchSize, chunks.length)} of ${chunks.length} sections...`, true);
+      } catch (error) {
+        console.error('Error calculating similarity:', error);
+      }
     }
     
     // Debug: Log all similarity scores for analysis
-    console.log('All similarity scores:', allSimilarityScores.sort((a, b) => b.score - a.score));
-    console.log(`Top 5 scores:`, allSimilarityScores.slice(0, 5));
+    console.log('All similarity scores:', allSimilarityScores);
+    console.log(`Top 5 scores:`, allSimilarityScores.sort((a, b) => b.score - a.score).slice(0, 5));
     console.log(`Results above threshold (${similarityThreshold}):`, results.length);
     
     // Sort results by similarity (highest first)

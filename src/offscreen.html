@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Vibe Embedding Model Host</title>
+  <script>
+    // CRITICAL: Block worker creation BEFORE any other scripts load
+    console.log('Setting up worker blocking in offscreen document');
+    
+    // Store original Worker constructor
+    window._originalWorker = window.Worker;
+    
+    // Override Worker constructor with a dummy version
+    window.Worker = function DummyWorker() {
+      console.log('Blocked attempt to create Worker');
+      return {
+        postMessage: function() {},
+        terminate: function() {},
+        addEventListener: function() {},
+        removeEventListener: function() {},
+        dispatchEvent: function() { return false; },
+        onmessage: null,
+        onerror: function(e) { console.log('Dummy worker error handler:', e); }
+      };
+    };
+    
+    // Set library-specific flag
+    window.__TRANSFORMERS_DISABLE_WORKERS__ = true;
+    
+    // Add environment variable to help libraries detect worker support
+    // Many libraries check this before trying to use workers
+    window.isSecureContext = false;
+    
+    console.log('Worker blocking initialized in <head>');
+  </script>
+</head>
+<body>
+  <div id="log">Offscreen document initialized for embedding model hosting</div>
+  <script src="offscreen.js"></script>
+</body>
+</html> 

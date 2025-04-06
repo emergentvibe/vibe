@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { getTheme, subscribeToThemeChanges, lightTheme } from './theme';
 import { SimilarResult } from '../services/exa';
 import DomainListManager from './DomainListManager';
+import { featureFlags } from '../config/feature-flags';
 
 // Helper function to extract base URL
 const getBaseUrl = (url: string): string => {
@@ -14,6 +15,7 @@ const getBaseUrl = (url: string): string => {
 };
 
 const Sidebar: React.FC = () => {
+  const [isEnabled, setIsEnabled] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
   const [theme, setTheme] = useState(getTheme());
   const [recommendations, setRecommendations] = useState<SimilarResult[]>([]);
@@ -22,6 +24,22 @@ const Sidebar: React.FC = () => {
   const [sameDomain, setSameDomain] = useState(false);
   const [selectedDomainListId, setSelectedDomainListId] = useState<string | null>(null);
 
+  // Check if sidebar feature is enabled
+  useEffect(() => {
+    const checkFeatureFlag = async () => {
+      setIsEnabled(featureFlags.isEnabled('sidebar'));
+    };
+    
+    checkFeatureFlag();
+    
+    // In the future, you could subscribe to feature flag changes here
+  }, []);
+
+  // If feature is disabled, don't render anything
+  if (!isEnabled) {
+    return null;
+  }
+
   useEffect(() => {
     // Subscribe to theme changes
     const unsubscribe = subscribeToThemeChanges(setTheme);
@@ -29,29 +47,46 @@ const Sidebar: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    // Find the main content element (usually body or a main container)
-    const mainContent = document.body;
+    // Instead of modifying body margin, we'll create a container element that overlays the page
+    // This prevents shifting the page content when the sidebar opens
     
-    if (isOpen) {
-      // Add margin to the right when sidebar is open
-      mainContent.style.marginRight = '400px';
-      mainContent.style.transition = 'margin-right 0.3s ease';
-    } else {
-      // Remove margin when sidebar is closed
-      mainContent.style.marginRight = '0';
+    // Create or get the wrapper element
+    let wrapper = document.getElementById('vibe-sidebar-wrapper');
+    if (!wrapper) {
+      wrapper = document.createElement('div');
+      wrapper.id = 'vibe-sidebar-wrapper';
+      document.body.appendChild(wrapper);
     }
-
+    
+    // Set styles on wrapper instead of body
+    Object.assign(wrapper.style, {
+      position: 'fixed',
+      top: '0',
+      right: '0',
+      bottom: '0',
+      width: isOpen ? '400px' : '0',
+      zIndex: '9998',
+      transition: 'width 0.3s ease',
+      pointerEvents: 'none' // Let clicks pass through when not open
+    });
+    
     // Cleanup function
     return () => {
-      mainContent.style.marginRight = '0';
-      mainContent.style.transition = '';
+      if (wrapper && document.body.contains(wrapper)) {
+        document.body.removeChild(wrapper);
+      }
     };
   }, [isOpen]);
 
   useEffect(() => {
     // Fetch recommendations when sidebar is opened or filters change
     if (isOpen) {
-      fetchRecommendations();
+      // Only fetch if Exa recommendations are enabled
+      if (featureFlags.isEnabled('exaRecommendations')) {
+        fetchRecommendations();
+      } else {
+        setError('Recommendations are currently disabled.');
+      }
     }
   }, [isOpen, sameDomain, selectedDomainListId]);
 
@@ -65,6 +100,12 @@ const Sidebar: React.FC = () => {
   };
 
   const fetchRecommendations = () => {
+    // Early return if Exa recommendations feature is disabled
+    if (!featureFlags.isEnabled('exaRecommendations')) {
+      setError('Recommendations are currently disabled.');
+      return;
+    }
+
     setLoading(true);
     setError(null);
     
@@ -154,7 +195,8 @@ const Sidebar: React.FC = () => {
             zIndex: 9999,
             padding: '20px',
             overflowY: 'auto',
-            color: theme.text
+            color: theme.text,
+            pointerEvents: 'auto' // Enable interactions with the sidebar
           }}
         >
           {/* Header */}
@@ -184,43 +226,61 @@ const Sidebar: React.FC = () => {
             </button>
           </div>
           
-          {/* Filter Controls */}
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            marginBottom: '20px'
-          }}>
-            {/* Same Domain Toggle */}
-            <button
-              onClick={toggleSameDomain}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                padding: '8px 12px',
-                backgroundColor: sameDomain ? theme.primary : theme.surface,
-                color: sameDomain ? 'white' : theme.textSecondary,
-                border: `1px solid ${sameDomain ? theme.primary : theme.border}`,
-                borderRadius: '6px',
-                cursor: 'pointer',
-                fontSize: '14px',
-                fontWeight: '500',
-                transition: 'all 0.2s ease'
-              }}
-            >
-              {sameDomain ? '✓ Same Domain Only' : 'Same Domain Only'}
-            </button>
-            
-            {/* Domain List Selector */}
-            <DomainListManager 
-              theme={theme}
-              onSelectList={handleDomainListSelect}
-              selectedListId={selectedDomainListId}
-              sameDomain={sameDomain}
-            />
-          </div>
+          {/* Feature Disabled Notice */}
+          {!featureFlags.isEnabled('exaRecommendations') && (
+            <div style={{
+              padding: '16px',
+              backgroundColor: '#FEF3C7',
+              color: '#92400E',
+              borderRadius: '8px',
+              marginBottom: '16px',
+              textAlign: 'center'
+            }}>
+              Recommendations are currently disabled.
+              <br />
+              Coming back soon!
+            </div>
+          )}
           
-          {/* Filter Indicator */}
-          {(sameDomain || selectedDomainListId) && loading === false && (
+          {/* Filter Controls - Only show if recommendations are enabled */}
+          {featureFlags.isEnabled('exaRecommendations') && (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              marginBottom: '20px'
+            }}>
+              {/* Same Domain Toggle */}
+              <button
+                onClick={toggleSameDomain}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  padding: '8px 12px',
+                  backgroundColor: sameDomain ? theme.primary : theme.surface,
+                  color: sameDomain ? 'white' : theme.textSecondary,
+                  border: `1px solid ${sameDomain ? theme.primary : theme.border}`,
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  transition: 'all 0.2s ease'
+                }}
+              >
+                {sameDomain ? '✓ Same Domain Only' : 'Same Domain Only'}
+              </button>
+              
+              {/* Domain List Selector */}
+              <DomainListManager 
+                theme={theme}
+                onSelectList={handleDomainListSelect}
+                selectedListId={selectedDomainListId}
+                sameDomain={sameDomain}
+              />
+            </div>
+          )}
+          
+          {/* Filter Indicator - Only show if recommendations are enabled */}
+          {featureFlags.isEnabled('exaRecommendations') && (sameDomain || selectedDomainListId) && loading === false && (
             <div style={{
               padding: '8px 12px',
               backgroundColor: theme.surface,
@@ -242,8 +302,8 @@ const Sidebar: React.FC = () => {
             </div>
           )}
 
-          {/* Loading State */}
-          {loading && (
+          {/* Loading State - Only show if recommendations are enabled */}
+          {featureFlags.isEnabled('exaRecommendations') && loading && (
             <div style={{
               display: 'flex',
               justifyContent: 'center',
@@ -255,8 +315,8 @@ const Sidebar: React.FC = () => {
             </div>
           )}
 
-          {/* Error State */}
-          {error && (
+          {/* Error State - Only show if recommendations are enabled */}
+          {featureFlags.isEnabled('exaRecommendations') && error && (
             <div style={{
               padding: '16px',
               backgroundColor: '#FEE2E2',
@@ -268,8 +328,8 @@ const Sidebar: React.FC = () => {
             </div>
           )}
 
-          {/* Recommendations List */}
-          {!loading && !error && (
+          {/* Recommendations List - Only show if recommendations are enabled */}
+          {featureFlags.isEnabled('exaRecommendations') && !loading && !error && (
             <div style={{
               display: 'flex',
               flexDirection: 'column',

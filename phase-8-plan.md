@@ -20,6 +20,14 @@ This document outlines the implementation strategy for adding a semantic search 
 - ✅ Real semantic search with result ranking
 - ✅ Enter key to trigger search (instead of searching while typing)
 - ✅ "Press Enter to search" indicator when user types
+- ✅ Immediate content processing on Alt-F press
+- ✅ Detailed progress indicators for model loading
+- ✅ Progressive embedding generation with percentage feedback
+- ✅ Improved error handling and user feedback
+- ✅ Shared embeddings across repeated searches
+- ✅ Offscreen document implementation for persistent model loading
+- ✅ Background to content script communication for embeddings
+- ✅ Worker blocking solution for Hugging Face transformers.js
 
 ### Current Structure
 ```
@@ -31,6 +39,9 @@ src/
       text-chunker.ts
     types.ts
     semantic-search.ts  # Main entry point
+  background/
+    index.ts            # Background script with messaging
+  offscreen.ts          # Offscreen document for model hosting
 ```
 
 ### Embedding Strategy Update (Important)
@@ -43,12 +54,155 @@ After evaluating the cost-benefit tradeoffs, we've decided to replace the OpenAI
 
 We'll be using the "Xenova/all-MiniLM-L6-v2" model, which is a lightweight but powerful embedding model optimized for semantic search applications. The model will be loaded asynchronously and cached for subsequent searches.
 
-### Next Steps
-- Implement Hugging Face transformers.js for client-side embeddings
-- Highlight matched content in the page
-- Scroll to result in the page when selected
-- Cache system for storing embeddings across page visits
-- Performance optimizations
+### Performance Improvement Plan
+We've implemented several improvements to enhance the user experience:
+
+#### 1. Immediate Processing on Alt-F
+- ✅ Text extraction and processing starts as soon as Alt-F is pressed
+- ✅ Three-phase process with clear feedback at each step:
+  - Analysis of page content (extract text chunks)
+  - Loading AI model (with percentage progress)
+  - Generating embeddings (with percentage progress)
+
+#### 2. Detailed Progress Feedback
+- ✅ Progress percentage shown during model loading
+- ✅ Progress percentage shown during embedding generation
+- ✅ Specific status messages that accurately describe the current process
+- ✅ Different visual states for loading, ready, and error conditions
+
+#### 3. Robust Error Handling
+- ✅ Better validation when search is attempted before ready
+- ✅ Context-specific feedback based on current processing phase
+- ✅ NaN progress handling for better user experience
+
+#### 4. Memory Optimization
+- ✅ Store chunks and embeddings for reuse across searches
+- ✅ Only calculate new embeddings as needed
+
+#### 5. Worker Blocking Solution
+- ✅ Implemented early worker blocking in the offscreen document
+- ✅ Created robust proxy object for model access patterns
+- ✅ Added debugging and inspection tools for tracing issues
+- ✅ Improved communication between content scripts and background
+
+```typescript
+// Early Worker Blocking Strategy
+// In offscreen document HTML
+<script>
+  // CRITICAL: Block worker creation BEFORE any other scripts load
+  window._originalWorker = window.Worker;
+  window.Worker = function DummyWorker() { 
+    console.log('Blocked attempt to create Worker');
+    return { /* dummy object */ };
+  };
+</script>
+
+// Robust Proxy for Model Access
+function createModelProxy() {
+  return new Proxy(function() {}, {
+    get: function(target, prop) {
+      // Handle various property access patterns
+      // ...
+    },
+    apply: function(target, thisArg, args) {
+      // Handle direct function calls
+      return generateEmbeddingViaBackground(args[0]);
+    }
+  });
+}
+```
+
+### Next Steps (Updated)
+1. ✅ **Browser Startup Model Loading**
+   - ✅ Implement model initialization in offscreen document
+   - ✅ Create detailed message passing between content scripts and background
+   - ✅ Implement robust proxy for model access
+   - ✅ Add worker blocking solution for Chrome extension environment
+
+2. **Website Embedding Cache**
+   - Implement persistent storage for website embeddings
+   - Add URL hashing and timestamp mechanisms
+   - Create LRU cache for managing storage limits
+   - Integrate with the semantic search flow
+
+3. **UI and Interaction Improvements**
+   - Highlight matched content in the page
+   - Scroll to results in the page when selected
+   - Add keyboard shortcuts for navigating results
+
+## Persistent Model Loading Plan
+
+### Offscreen Document Approach (Implemented)
+We've successfully implemented a persistent model using Chrome's offscreen document API:
+
+1. **Offscreen Document Implementation** ✅
+   - Created an offscreen document that loads once and persists
+   - Implemented early Worker blocking to prevent errors
+   - Added robust error handling and debugging
+
+2. **Message Passing System** ✅
+   ```typescript
+   // In background.ts
+   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+     if (request.type === 'GENERATE_EMBEDDING') {
+       // Forward to offscreen document
+       chrome.runtime.sendMessage(request)
+         .then(response => sendResponse(response))
+         .catch(error => sendResponse({ error: error.message }));
+       
+       return true; // Indicates async response
+     }
+   });
+   
+   // In offscreen.ts
+   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+     if (message.type === 'GENERATE_EMBEDDING') {
+       generateEmbedding(message.text)
+         .then(embedding => sendResponse({ embedding }))
+         .catch(error => sendResponse({ error: error.message }));
+       
+       return true; // Indicates async response
+     }
+   });
+   ```
+
+3. **Content Script Integration** ✅
+   ```typescript
+   // In embedding-service.ts
+   async function generateEmbeddingViaBackground(text: string): Promise<number[]> {
+     return new Promise((resolve, reject) => {
+       chrome.runtime.sendMessage(
+         { type: 'GENERATE_EMBEDDING', text },
+         (response) => {
+           if (chrome.runtime.lastError) {
+             reject(new Error(chrome.runtime.lastError.message));
+           } else if (response.error) {
+             reject(new Error(response.error));
+           } else {
+             resolve(response.embedding);
+           }
+         }
+       );
+     });
+   }
+   ```
+
+### Worker Blocking Solution
+We encountered and solved a critical issue with Web Workers in Chrome Extensions:
+
+1. **Problem**: Transformers.js attempts to create Web Workers, which face restrictions in Chrome Extensions and cause errors.
+
+2. **Solution Components**:
+   - ✅ Early worker blocking by replacing the Worker constructor before any scripts load
+   - ✅ Robust proxy object for model access that handles various access patterns
+   - ✅ Detailed debugging to trace message flow and identify issues
+   - ✅ Improved communication with error handling between contexts
+
+3. **Results**:
+   - Successful embedding generation for hundreds of text chunks
+   - Consistent performance across different websites
+   - Graceful handling of worker creation attempts
+   - Reliable communication between content scripts and offscreen document
 
 ## Original Plan
 
@@ -137,13 +291,13 @@ export function extractTextChunks(options = DEFAULT_OPTIONS): TextChunk[] {
 
 ### 1.4 Embedding Generation Architecture (Updated) ⏳
 - ✅ Design embedding service interface
-- ⬜ Integrate transformers.js from Hugging Face
+- ✅ Integrate transformers.js from Hugging Face
 - ⬜ Implement model caching and lazy loading
 - ⬜ Add batched processing for efficient embedding generation
 
-**Updated Implementation Plan for `embedding-service.ts`:**
+**Current Implementation in `embedding-service.ts`:**
 ```typescript
-// Updated design using transformers.js
+// Using transformers.js
 import { pipeline } from '@xenova/transformers';
 
 // Model caching
@@ -157,7 +311,7 @@ async function getEmbeddingModel() {
   if (!embeddingModel) {
     embeddingModel = await pipeline(
       'feature-extraction', 
-      'Xenova/bge-small-en-v1.5'
+      'Xenova/all-MiniLM-L6-v2'
     );
   }
   return embeddingModel;
@@ -182,55 +336,58 @@ export async function generateEmbedding(text: string): Promise<number[]> {
 }
 ```
 
-### 1.5 Data Flow Architecture ✅
-- ✅ Process content in batches to handle large pages
-- ✅ Implement dynamic imports for performance
-- ✅ Create vector similarity search functionality
-- ✅ Handle search state and result navigation
-
-**Implemented search flow:**
+### 1.5 Planned Cache Implementation
 ```typescript
-// Search implementation
-async function performSearch(query: string) {
-  // Extract content chunks from the page
-  const chunks = extractTextChunks();
+// In embedding-cache.ts
+interface CachedPage {
+  url: string;
+  timestamp: number;
+  chunks: TextChunk[];
+  embeddings: Record<string, number[]>;
+}
+
+// LRU Cache for pages
+const MAX_CACHED_PAGES = 50;
+const pageCache: Map<string, CachedPage> = new Map();
+
+// Store page in cache
+export async function cachePage(url: string, chunks: TextChunk[], embeddings: Record<string, number[]>) {
+  const urlHash = hashUrl(url);
   
-  // Generate embedding for the query
-  const queryEmbedding = await generateEmbedding(query);
+  // Create cache entry
+  const cacheEntry: CachedPage = {
+    url,
+    timestamp: Date.now(),
+    chunks,
+    embeddings
+  };
   
-  // Process chunks in batches with progress updates
-  for (each batch of chunks) {
-    // Generate embeddings for each chunk
-    // Calculate similarity to query
-    // Store results above threshold
+  // Add to cache
+  pageCache.set(urlHash, cacheEntry);
+  
+  // Trim cache if needed
+  if (pageCache.size > MAX_CACHED_PAGES) {
+    // Remove oldest entry
+    const oldestKey = [...pageCache.keys()]
+      .sort((a, b) => pageCache.get(a)!.timestamp - pageCache.get(b)!.timestamp)[0];
+    pageCache.delete(oldestKey);
   }
   
-  // Sort results by similarity
-  // Display top matches in the UI
+  // Persist to storage
+  await persistCacheToStorage();
+}
+
+// Check if page is in cache
+export function getPageFromCache(url: string): CachedPage | null {
+  const urlHash = hashUrl(url);
+  const cachedPage = pageCache.get(urlHash);
+  
+  if (cachedPage) {
+    // Update timestamp (mark as recently used)
+    cachedPage.timestamp = Date.now();
+    return cachedPage;
+  }
+  
+  return null;
 }
 ```
-
-### 1.6 Integration Strategy ✅
-- ✅ Create new module structure to encapsulate functionality
-- ✅ Define clear interfaces between existing code and new feature
-- ✅ Implement feature flags for gradual rollout
-- ⬜ Use Shadow DOM for UI components to prevent style conflicts
-
-## Next Development Focus
-
-### 1. Browser-Based Embedding Implementation
-- Integrate transformers.js library from Hugging Face
-- Implement model loading and caching mechanism
-- Set up error handling and fallbacks
-- Add progress feedback for model download
-
-### 2. Result Highlighting
-- Highlight matched content in the page
-- Scroll to and focus on selected result
-- Add visual indicators for matching sections
-
-### 3. Performance Optimization
-- Implement persistent caching mechanism for embeddings
-- Add background processing for large pages
-- Optimize chunking for different content types
-- Add progress indicators for search operation
