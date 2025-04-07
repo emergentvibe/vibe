@@ -23,19 +23,15 @@ const DEFAULT_OPTIONS = {
  * Process the current document and extract text chunks
  */
 export function extractTextChunks(options = DEFAULT_OPTIONS): TextChunk[] {
-  console.log('Extracting text chunks from document');
-  
   // Get all text-containing elements
   const textNodes = getTextNodes(options.excludeSelectors);
-  console.log(`Found ${textNodes.length} text elements`);
   
   // Extract raw text from each element
   const rawChunks = extractRawChunks(textNodes);
-  console.log(`Extracted ${rawChunks.length} raw chunks`);
   
   // Process raw chunks into semantic chunks
   const chunks = processChunks(rawChunks, options);
-  console.log(`Created ${chunks.length} semantic chunks`);
+  console.log(`📝 Created ${chunks.length} semantic chunks`);
   
   return chunks;
 }
@@ -106,7 +102,6 @@ function processChunks(
   options: typeof DEFAULT_OPTIONS
 ): TextChunk[] {
   const result: TextChunk[] = [];
-  console.log('Processing chunks, found', rawChunks.length, 'raw chunks');
   
   // Helper function to split a large text into smaller chunks with overlap
   const splitTextIntoChunks = (text: string, domPath: string, element: Element): TextChunk[] => {
@@ -124,8 +119,6 @@ function processChunks(
           element: element as HTMLElement,
           position: 0
         });
-        
-        console.log(`Created single chunk: "${text.substring(0, 30)}..." - Element valid? ${isValidElement} - Type: ${element.tagName}`);
       }
       return chunks;
     }
@@ -161,8 +154,6 @@ function processChunks(
           element: element as HTMLElement,
           position: position++
         });
-        
-        console.log(`Created chunk ${position-1}: "${chunkText.substring(0, 30)}..." - Element valid? ${isValidElement} - Type: ${element.tagName}`);
       }
       
       // Move to next chunk position with overlap

@@ -268,8 +268,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return false;
   }
   
-  console.log('[Offscreen] Received targeted message:', request.type);
-  
   if (request.type === 'GET_MODEL_STATUS') {
     // Return current model status
     const response = {
@@ -279,7 +277,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       error: modelLoadError ? modelLoadError.message : null,
       host: 'offscreen'
     };
-    console.log('[Offscreen] Sending status response:', response);
     sendResponse(response);
     return true;
   }
@@ -287,20 +284,15 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.type === 'GENERATE_EMBEDDING') {
     // Generate embedding for text
     if (!request.text) {
-      console.log('[Offscreen] No text provided for embedding');
       sendResponse({ error: 'No text provided' });
       return true;
     }
     
-    console.log('[Offscreen] Generating embedding for text length:', request.text.length);
     generateEmbedding(request.text)
       .then(embedding => {
-        console.log('[Offscreen] Embedding generated successfully, length:', embedding.length);
-        
         // Return in the exact format expected by content script
         sendResponse({ 
           embedding: embedding,
-          // Provide all properties that might be expected by the content script
           data: embedding,
           success: true,
           error: null

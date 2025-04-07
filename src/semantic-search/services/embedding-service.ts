@@ -395,79 +395,256 @@ function createModelProxy() {
 }
 
 /**
- * Generate embedding via background script model
+ * Validate and normalize embedding data to ensure it's in the correct format
+ */
+function validateEmbedding(embedding: any): number[] {
+  // Add extensive debug logging
+  console.log('Validating embedding:', {
+    type: typeof embedding,
+    isNull: embedding === null,
+    isUndefined: embedding === undefined,
+    isArray: Array.isArray(embedding),
+    hasData: embedding?.data !== undefined,
+    hasValues: embedding?.values !== undefined,
+    hasLength: embedding?.length !== undefined,
+    length: embedding?.length || 0,
+    dataType: embedding?.data ? typeof embedding.data : 'N/A',
+    constructor: embedding?.constructor?.name || 'N/A'
+  });
+
+  // Check if embedding exists and is iterable
+  if (!embedding) {
+    throw new Error('Embedding is undefined or null');
+  }
+  
+  // If it's already an array, return it
+  if (Array.isArray(embedding)) {
+    console.log('Embedding is already an array');
+    return embedding;
+  }
+  
+  // Handle Float32Array or other TypedArray directly
+  if (ArrayBuffer.isView(embedding)) {
+    console.log('Embedding is a TypedArray, converting to array');
+    // Cast to any to avoid linter errors with ArrayBufferView
+    return Array.from(embedding as any);
+  }
+  
+  // If it has a data property that is a TypedArray or Array
+  if (embedding.data) {
+    if (ArrayBuffer.isView(embedding.data)) {
+      console.log('Embedding has TypedArray data property');
+      // Cast to any to avoid linter errors with ArrayBufferView
+      return Array.from(embedding.data as any);
+    }
+    if (Array.isArray(embedding.data)) {
+      console.log('Embedding has Array data property');
+      return embedding.data;
+    }
+    if (typeof embedding.data === 'object' && embedding.data !== null) {
+      console.log('Embedding has object data property, trying to convert');
+      try {
+        // Try to treat data as an object with numeric indices
+        const keys = Object.keys(embedding.data).filter(k => !isNaN(Number(k)));
+        if (keys.length > 0) {
+          return keys.sort((a, b) => Number(a) - Number(b)).map(k => embedding.data[k]);
+        }
+      } catch (e) {
+        console.error('Error converting data property:', e);
+      }
+    }
+  }
+  
+  // If it's an object with values property (e.g., Float32Array)
+  if (embedding.values) {
+    console.log('Embedding has values property');
+    if (typeof embedding.values[Symbol.iterator] === 'function') {
+      try {
+        console.log('Values is iterable, converting to array');
+        return Array.from(embedding.values);
+      } catch (e) {
+        console.error('Error converting values to array:', e);
+      }
+    }
+  }
+  
+  // If it has a toArray method
+  if (typeof embedding.toArray === 'function') {
+    console.log('Embedding has toArray method');
+    try {
+      const result = embedding.toArray();
+      if (Array.isArray(result)) {
+        return result;
+      }
+    } catch (e) {
+      console.error('Error calling toArray:', e);
+    }
+  }
+  
+  // If it has a flatten method
+  if (typeof embedding.flatten === 'function') {
+    console.log('Embedding has flatten method');
+    try {
+      const result = embedding.flatten();
+      if (Array.isArray(result)) {
+        return result;
+      }
+    } catch (e) {
+      console.error('Error calling flatten:', e);
+    }
+  }
+  
+  // If it's an object with numeric properties
+  if (typeof embedding === 'object') {
+    console.log('Embedding is a generic object, looking for numeric properties');
+    // Try to convert object to array if it has numeric keys
+    const keys = Object.keys(embedding).filter(k => !isNaN(Number(k)));
+    if (keys.length > 0) {
+      console.log(`Found ${keys.length} numeric keys`);
+      return keys.sort((a, b) => Number(a) - Number(b)).map(k => embedding[k]);
+    }
+  }
+  
+  // If it's JSON string
+  if (typeof embedding === 'string') {
+    console.log('Embedding is a string, trying to parse as JSON');
+    try {
+      const parsed = JSON.parse(embedding);
+      if (Array.isArray(parsed)) {
+        return parsed;
+      }
+    } catch (e) {
+      console.error('Failed to parse string as JSON:', e);
+    }
+  }
+  
+  // Last resort: try to directly convert whatever we have to an array
+  console.log('Attempting last resort conversion');
+  try {
+    // Create a safe wrapper for Array.from that won't crash
+    const safeArrayFrom = (value: any): number[] => {
+      if (!value) return [];
+      
+      try {
+        if (typeof value[Symbol.iterator] === 'function') {
+          return Array.from(value);
+        }
+      } catch (e) {
+        console.error('Safe Array.from conversion failed:', e);
+      }
+      
+      // If we can't iterate it, try to extract values some other way
+      if (typeof value === 'object') {
+        const keys = Object.keys(value).filter(k => !isNaN(Number(k)));
+        if (keys.length > 0) {
+          return keys.sort((a, b) => Number(a) - Number(b)).map(k => value[k]);
+        }
+      }
+      
+      return [];
+    };
+    
+    // Try several approaches
+    if (embedding.embedding) return safeArrayFrom(embedding.embedding);
+    if (embedding.vector) return safeArrayFrom(embedding.vector);
+    if (embedding.value) return safeArrayFrom(embedding.value);
+    if (embedding.output) return safeArrayFrom(embedding.output);
+    
+    // Try to directly convert the embedding itself
+    return safeArrayFrom(embedding);
+  } catch (e) {
+    console.error('Last resort conversion failed:', e);
+  }
+  
+  throw new Error('Embedding is not in a valid format and could not be converted');
+}
+
+/**
+ * Generate embedding via background script
  */
 async function generateEmbeddingViaBackground(text: string): Promise<number[]> {
-  return new Promise((resolve, reject) => {
-    try {
+  try {
+    // Get cached result if available
+    const cacheKey = getCacheKey(text);
+    if (embeddingCache[cacheKey]) {
+      return embeddingCache[cacheKey];
+    }
+    
+    // Send a message to the background script to generate the embedding
+    return new Promise<number[]>((resolve, reject) => {
       chrome.runtime.sendMessage(
-        { 
-          type: 'GENERATE_EMBEDDING', 
-          text,
-          direct: true,
-          target: 'offscreen_document'
-        },
+        { type: 'GENERATE_EMBEDDING', text, direct: true, target: 'offscreen_document' },
         (response) => {
-          // Check for extension errors
+          // Handle possible errors due to extension context
           if (chrome.runtime.lastError) {
-            console.error('Error calling background embedding:', chrome.runtime.lastError);
-            // Fall back to content script model
-            isUsingBackgroundModel = false;
-            isBackgroundModelAvailable = false;
-            reject(new Error(chrome.runtime.lastError.message));
+            reject(new Error(`Error generating embedding: ${chrome.runtime.lastError.message}`));
             return;
           }
           
-          // Check for API errors
-          if (response.error) {
-            console.error('Background embedding error:', response.error);
-            // Fall back to content script model
-            isUsingBackgroundModel = false;
-            isBackgroundModelAvailable = false;
-            reject(new Error(response.error));
-            return;
-          }
+          // Add debug logging for response structure
+          console.log('Background embedding response structure:', {
+            hasResponse: !!response,
+            responseType: typeof response,
+            hasEmbedding: response && 'embedding' in response,
+            embeddingType: response?.embedding ? typeof response.embedding : 'N/A',
+            embeddingLength: response?.embedding?.length,
+            hasData: response?.embedding?.data !== undefined,
+            hasError: response && 'error' in response,
+            error: response?.error
+          });
           
-          try {
-            // Get the embedding array from whatever format it's in
-            let embeddingArray: number[];
-            
-            if (Array.isArray(response.embedding)) {
-              embeddingArray = response.embedding;
-            } else if (Array.isArray(response.data)) {
-              embeddingArray = response.data;
-            } else if (response.embedding && typeof response.embedding === 'object') {
-              embeddingArray = Array.from(response.embedding.data || []);
-            } else {
-              throw new Error('Invalid embedding format received');
+          // Check if we have a valid response
+          if (response && response.embedding) {
+            try {
+              // Validate and normalize the embedding
+              console.log(`Received embedding from background, length: ${response.embedding.length}`);
+              const validatedEmbedding = validateEmbedding(response.embedding);
+              
+              // Verify the validated embedding
+              if (!Array.isArray(validatedEmbedding) || validatedEmbedding.length === 0) {
+                console.error('Validation returned an invalid embedding:', validatedEmbedding);
+                reject(new Error('Validation produced an invalid embedding'));
+                return;
+              }
+              
+              // Additional guard: ensure all values are numbers
+              const isValidNumberArray = validatedEmbedding.every(val => typeof val === 'number' && !isNaN(val));
+              if (!isValidNumberArray) {
+                console.error('Embedding contains non-numeric values:', validatedEmbedding.slice(0, 5));
+                
+                // Try to fix it by converting values to numbers
+                const fixedEmbedding = validatedEmbedding.map(val => Number(val));
+                if (fixedEmbedding.every(val => !isNaN(val))) {
+                  console.log('Fixed embedding by converting values to numbers');
+                  embeddingCache[cacheKey] = fixedEmbedding;
+                  resolve(fixedEmbedding);
+                  return;
+                }
+                
+                reject(new Error('Embedding contains invalid values'));
+                return;
+              }
+              
+              // All checks passed, cache and return the embedding
+              console.log('Embedding validation successful');
+              embeddingCache[cacheKey] = validatedEmbedding;
+              resolve(validatedEmbedding);
+            } catch (error) {
+              console.error('Error validating embedding:', error);
+              reject(error);
             }
-            
-            // Verify we have a valid array with data
-            if (!embeddingArray || embeddingArray.length === 0) {
-              throw new Error('Received empty embedding');
-            }
-            
-            console.log(`Received embedding from background, length: ${embeddingArray.length}`);
-            
-            // Return the array directly rather than wrapping in an object
-            resolve(embeddingArray);
-          } catch (formatError) {
-            console.error('Error parsing embedding response:', formatError, response);
-            // Fall back to content script model
-            isUsingBackgroundModel = false;
-            isBackgroundModelAvailable = false;
-            reject(formatError);
+          } else if (response && response.error) {
+            reject(new Error(`Background error: ${response.error}`));
+          } else {
+            reject(new Error('Invalid response from background'));
           }
         }
       );
-    } catch (error) {
-      console.error('Error generating embedding via background:', error);
-      // Fall back to content script model
-      isUsingBackgroundModel = false;
-      isBackgroundModelAvailable = false;
-      reject(error);
-    }
-  });
+    });
+  } catch (error) {
+    console.error('Error generating embedding via background:', error);
+    throw error;
+  }
 }
 
 /**

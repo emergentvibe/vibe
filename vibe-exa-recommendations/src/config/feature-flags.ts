@@ -7,7 +7,6 @@
 
 export interface FeatureFlags {
   // Core features
-  semanticSearch: boolean;  // Control-F semantic search feature
   sidebar: boolean;         // Sidebar with recommendations
   exaRecommendations: boolean; // Exa API recommendations
 
@@ -22,8 +21,7 @@ export interface FeatureFlags {
  * Modify this to enable/disable features
  */
 export const DEFAULT_FEATURE_FLAGS: FeatureFlags = {
-  // Both semantic search and sidebar are enabled
-  semanticSearch: false,
+  // Enable sidebar and recommendations
   sidebar: true,
   exaRecommendations: true,
 
