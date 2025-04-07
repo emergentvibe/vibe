@@ -397,7 +397,7 @@ function createModelProxy() {
 /**
  * Generate embedding via background script model
  */
-async function generateEmbeddingViaBackground(text: string): Promise<{ data: Float32Array }> {
+async function generateEmbeddingViaBackground(text: string): Promise<number[]> {
   return new Promise((resolve, reject) => {
     try {
       chrome.runtime.sendMessage(
@@ -449,9 +449,8 @@ async function generateEmbeddingViaBackground(text: string): Promise<{ data: Flo
             
             console.log(`Received embedding from background, length: ${embeddingArray.length}`);
             
-            // Create a Float32Array from the embedding
-            const data = new Float32Array(embeddingArray);
-            resolve({ data });
+            // Return the array directly rather than wrapping in an object
+            resolve(embeddingArray);
           } catch (formatError) {
             console.error('Error parsing embedding response:', formatError, response);
             // Fall back to content script model
@@ -472,13 +471,23 @@ async function generateEmbeddingViaBackground(text: string): Promise<{ data: Flo
 }
 
 /**
- * Generate an embedding for a single text string
+ * Generate embedding for a text string
  */
 export async function generateEmbedding(text: string): Promise<number[]> {
-  // Check cache first
+  // Validate text isn't empty
+  if (!text || text.trim().length === 0) {
+    throw new Error('No text provided for embedding generation');
+  }
+  
+  // Check local cache first
   const cacheKey = getCacheKey(text);
   if (embeddingCache[cacheKey]) {
     return embeddingCache[cacheKey];
+  }
+  
+  // If we're using the background model, use it
+  if (isUsingBackgroundModel) {
+    return generateEmbeddingViaBackground(text);
   }
 
   try {

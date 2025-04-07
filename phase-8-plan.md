@@ -128,7 +128,6 @@ function createModelProxy() {
 3. **UI and Interaction Improvements**
    - Highlight matched content in the page
    - Scroll to results in the page when selected
-   - Add keyboard shortcuts for navigating results
 
 ## Persistent Model Loading Plan
 

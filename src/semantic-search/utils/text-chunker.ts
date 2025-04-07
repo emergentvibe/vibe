@@ -5,22 +5,13 @@
  * into meaningful units for semantic search.
  */
 
-// Define the TextChunk interface locally to avoid import issues
-interface TextChunk {
-  id: string;
-  text: string;
-  domPath: string;
-  element: Element | null;
-  startOffset: number;
-  endOffset: number;
-  embedding?: number[];
-}
+import { TextChunk } from '../types';
 
 // Default options for content processing
 const DEFAULT_OPTIONS = {
   minChunkLength: 50,    // Minimum characters per chunk (reduced from 100)
   maxChunkLength: 100,   // Maximum characters per chunk (reduced from 1000)
-  overlapPercentage: 25, // Percentage of overlap between chunks (increased from 10)
+  overlapPercentage: 0, // Percentage of overlap between chunks (increased from 10)
   excludeSelectors: [
     'script', 'style', 'noscript', 'iframe', 'svg',
     'nav', 'header', 'footer', 'aside',
@@ -115,6 +106,7 @@ function processChunks(
   options: typeof DEFAULT_OPTIONS
 ): TextChunk[] {
   const result: TextChunk[] = [];
+  console.log('Processing chunks, found', rawChunks.length, 'raw chunks');
   
   // Helper function to split a large text into smaller chunks with overlap
   const splitTextIntoChunks = (text: string, domPath: string, element: Element): TextChunk[] => {
@@ -123,20 +115,24 @@ function processChunks(
     // If text is small enough, return it as a single chunk
     if (text.length <= options.maxChunkLength) {
       if (text.length >= options.minChunkLength) {
+        // Check if the element is valid
+        const isValidElement = element instanceof HTMLElement;
+        
         chunks.push({
           id: generateChunkId(),
           text,
-          domPath,
-          element,
-          startOffset: 0,
-          endOffset: text.length
+          element: element as HTMLElement,
+          position: 0
         });
+        
+        console.log(`Created single chunk: "${text.substring(0, 30)}..." - Element valid? ${isValidElement} - Type: ${element.tagName}`);
       }
       return chunks;
     }
     
     // Split long text into chunks
     let startPos = 0;
+    let position = 0;
     
     while (startPos < text.length) {
       // Determine end position for this chunk
@@ -156,14 +152,17 @@ function processChunks(
       // Create a chunk if it meets min length requirement
       const chunkText = text.substring(startPos, endPos).trim();
       if (chunkText.length >= options.minChunkLength) {
+        // Check if the element is valid
+        const isValidElement = element instanceof HTMLElement;
+        
         chunks.push({
           id: generateChunkId(),
           text: chunkText,
-          domPath,
-          element,
-          startOffset: startPos,
-          endOffset: endPos
+          element: element as HTMLElement,
+          position: position++
         });
+        
+        console.log(`Created chunk ${position-1}: "${chunkText.substring(0, 30)}..." - Element valid? ${isValidElement} - Type: ${element.tagName}`);
       }
       
       // Move to next chunk position with overlap
@@ -219,10 +218,8 @@ function processChunks(
       result.push({
         id: generateChunkId(),
         text: concatenatedText,
-        domPath: group[0].domPath,
-        element: group[0].element,
-        startOffset: 0,
-        endOffset: concatenatedText.length
+        element: group[0].element as HTMLElement,
+        position: 0
       });
     }
   });

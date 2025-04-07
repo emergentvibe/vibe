@@ -17,27 +17,22 @@ export interface TextChunk {
   text: string;
   
   /**
-   * CSS selector path to the DOM element
-   */
-  domPath: string;
-  
-  /**
    * Reference to the actual DOM element (if available)
    */
-  element: Element | null;
+  element: HTMLElement;
   
   /**
-   * Start position within the element's text content
+   * Source URL of the chunk
    */
-  startOffset: number;
+  sourceUrl?: string;
   
   /**
-   * End position within the element's text content
+   * Position of the chunk
    */
-  endOffset: number;
+  position?: number;
   
   /**
-   * Optional vector embedding of the chunk text
+   * Embedding vector for the chunk
    */
   embedding?: number[];
 }
@@ -47,24 +42,34 @@ export interface TextChunk {
  */
 export interface SearchResult {
   /**
-   * Reference to the matching chunk's ID
+   * Reference to the matching chunk
    */
-  chunkId: string;
-  
-  /**
-   * Similarity score (0-1) with the search query
-   */
-  similarity: number;
-  
-  /**
-   * The text content of the matching chunk
-   */
-  text: string;
+  chunk: TextChunk;
   
   /**
    * Reference to the DOM element
    */
-  element: Element | null;
+  element: HTMLElement | null;
+  
+  /**
+   * Score of the search result (0-1)
+   */
+  score: number;
+  
+  /**
+   * Highlighted text content
+   */
+  highlightedText?: string;
+  
+  /**
+   * Vertical position of the element on the page (for sorting top-to-bottom)
+   */
+  verticalPosition: number;
+  
+  /**
+   * Whether the element is visible on the page
+   */
+  visible: boolean;
   
   /**
    * Optional highlighting positions within the chunk
@@ -73,6 +78,21 @@ export interface SearchResult {
     start: number;
     end: number;
   }[];
+  
+  /**
+   * @deprecated Use chunk.id instead
+   */
+  chunkId?: string;
+  
+  /**
+   * @deprecated Use score instead
+   */
+  similarity?: number;
+  
+  /**
+   * @deprecated Use chunk.text instead
+   */
+  text?: string;
 }
 
 /**
@@ -98,4 +118,29 @@ export interface ContentProcessorOptions {
    * CSS selectors for elements to exclude
    */
   excludeSelectors: string[];
+}
+
+/**
+ * Options for text chunk generation
+ */
+export interface TextChunkOptions {
+  /**
+   * Minimum chunk size
+   */
+  minChunkSize?: number;
+  
+  /**
+   * Maximum chunk size
+   */
+  maxChunkSize?: number;
+  
+  /**
+   * Overlap size
+   */
+  overlapSize?: number;
+  
+  /**
+   * CSS selectors for elements to exclude
+   */
+  excludeSelectors?: string[];
 } 
